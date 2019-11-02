@@ -75,6 +75,7 @@ use crate::intrinsics;
 ///
 /// [mod]: index.html
 #[stable(feature = "rust1", since = "1.0.0")]
+#[cfg_attr(not(bootstrap), rustc_dyn)]
 pub trait Any: 'static {
     /// Gets the `TypeId` of `self`.
     ///

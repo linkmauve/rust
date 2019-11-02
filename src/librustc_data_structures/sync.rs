@@ -28,7 +28,10 @@ pub use std::sync::atomic::Ordering;
 
 cfg_if! {
     if #[cfg(not(parallel_compiler))] {
+        #[cfg_attr(not(bootstrap), rustc_dyn)]
         pub auto trait Send {}
+
+        #[cfg_attr(not(bootstrap), rustc_dyn)]
         pub auto trait Sync {}
 
         impl<T: ?Sized> Send for T {}

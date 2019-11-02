@@ -157,6 +157,7 @@
 /// [`String`]: ../../std/string/struct.String.html
 /// [`str`]: ../../std/primitive.str.html
 #[stable(feature = "rust1", since = "1.0.0")]
+#[cfg_attr(not(bootstrap), rustc_dyn)]
 pub trait Borrow<Borrowed: ?Sized> {
     /// Immutably borrows from an owned value.
     ///
@@ -189,6 +190,7 @@ pub trait Borrow<Borrowed: ?Sized> {
 ///
 /// [`Borrow<T>`]: trait.Borrow.html
 #[stable(feature = "rust1", since = "1.0.0")]
+#[cfg_attr(not(bootstrap), rustc_dyn)]
 pub trait BorrowMut<Borrowed: ?Sized> : Borrow<Borrowed> {
     /// Mutably borrows from an owned value.
     ///

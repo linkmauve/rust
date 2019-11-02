@@ -14,13 +14,14 @@ use crate::hir;
 use crate::hir::def_id::DefId;
 use crate::lint;
 use crate::traits::{self, Obligation, ObligationCause};
-use crate::ty::{self, Ty, TyCtxt, TypeFoldable, Predicate, ToPredicate};
+use crate::ty::{self, Ty, TyCtxt, TypeFoldable, Predicate, ToPredicate, ParamTy};
 use crate::ty::subst::{Subst, InternalSubsts};
 use std::borrow::Cow;
 use std::iter::{self};
 use syntax::ast::{self};
 use syntax::symbol::Symbol;
 use syntax_pos::{Span, DUMMY_SP};
+use syntax::symbol::sym;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ObjectSafetyViolation {
@@ -281,7 +282,40 @@ impl<'tcx> TyCtxt<'tcx> {
                     false
                 }
             }
-        )
+            )
+    }
+
+    fn generics_require_sized_param(self, def_id: DefId, param_ty: ParamTy) -> bool {
+        debug!("generics_require_sized_param(def_id={:?}, param_ty={:?})", def_id, param_ty);
+
+        let sized_def_id = match self.lang_items().sized_trait() {
+            Some(def_id) => def_id,
+            None => { return false; /* No Sized trait, can't require it! */ }
+        };
+
+        // Search for a predicate like `Self : Sized` amongst the trait bounds.
+        let predicates = self.predicates_of(def_id);
+        let predicates = predicates.instantiate_identity(self).predicates;
+        predicates
+            .iter()
+            .any(|predicate| match predicate {
+                ty::Predicate::Trait(ref trait_pred) => {
+                    debug!("generics_require_sized_param: trait_pred = {:?}", trait_pred);
+
+                    trait_pred.def_id() == sized_def_id
+                        && trait_pred.skip_binder().self_ty().is_param(param_ty.index)
+                }
+                ty::Predicate::Projection(..) |
+                ty::Predicate::Subtype(..) |
+                ty::Predicate::RegionOutlives(..) |
+                ty::Predicate::WellFormed(..) |
+                ty::Predicate::ObjectSafe(..) |
+                ty::Predicate::ClosureKind(..) |
+                ty::Predicate::TypeOutlives(..) |
+                ty::Predicate::ConstEvaluatable(..) => {
+                    false
+                }
+            })
     }
 
     /// Returns `Some(_)` if this method makes the containing trait not object safe.
@@ -724,8 +758,43 @@ impl<'tcx> TyCtxt<'tcx> {
 
         error
     }
+
+    /// Searches for an impl that potentially overlaps `dyn Trait`
+    /// (where `Trait` is the trait with def-id `trait_def_id`). This
+    /// is used to distinguish between a trait being **fully**
+    /// object-safe and being **degenerate** object-safe -- the latter
+    /// means that we permit `dyn Foo` but we do not supply a `dyn
+    /// Foo: Foo` impl.
+    fn impl_potentially_overlapping_dyn_trait(self, tcx: TyCtxt<'_>, trait_def_id: DefId) -> bool {
+        debug!("impl_potentially_overlapping_dyn_trait({:?})", trait_def_id);
+        let mut found_match = false;
+        tcx.for_each_impl(trait_def_id, |impl_def_id| {
+            let impl_self_ty = tcx.type_of(impl_def_id);
+            match impl_self_ty.kind {
+                ty::Param(param_ty) => {
+                    if !self.generics_require_sized_param(impl_def_id, param_ty) {
+                        found_match = true;
+                        debug!("Match found = {}; for param_ty {}", found_match, param_ty.name);
+                        tcx.sess.span_warn(
+                            self.def_span(impl_def_id),
+                            "impl_potentially_overlapping_dyn_trait",
+                        );
+                    }
+                }
+                _ => ()
+            }
+        });
+
+        found_match
+    }
 }
 
 pub(super) fn is_object_safe_provider(tcx: TyCtxt<'_>, trait_def_id: DefId) -> bool {
-    tcx.object_safety_violations(trait_def_id).is_empty()
+    tcx.object_safety_violations(trait_def_id).is_empty() && {
+        if tcx.has_attr(trait_def_id, sym::rustc_dyn) {
+            true
+        } else {
+            !tcx.impl_potentially_overlapping_dyn_trait(tcx, trait_def_id)
+        }
+    }
 }
