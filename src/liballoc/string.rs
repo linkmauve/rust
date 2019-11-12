@@ -2143,6 +2143,7 @@ impl FromStr for String {
 ///
 /// [`Display`]: ../../std/fmt/trait.Display.html
 #[stable(feature = "rust1", since = "1.0.0")]
+#[cfg_attr(not(bootstrap), rustc_dyn)]
 pub trait ToString {
     /// Converts the given value to a `String`.
     ///
